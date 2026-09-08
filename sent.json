@@ -38,7 +38,7 @@
     "date": "9 Eylül 2026 Çarşamba",
     "time": "22:00",
     "venue": "Henüz açıklanmadı",
-    "sentAt": "2026-09-08T03:52:55.600Z"
+    "sentAt": "2026-09-08T04:10:21.620Z"
   },
   "tff-13.09.2026-20:00-GALATASARAY A.�.-KOCAEL�SPOR": {
     "sent": true,
@@ -88,7 +88,7 @@
     "date": "11 Eylül 2026 Cuma",
     "time": "20:00",
     "venue": "Tüpraş Stadyumu",
-    "sentAt": "2026-09-08T03:52:57.141Z"
+    "sentAt": "2026-09-08T04:10:23.204Z"
   },
   "tff-GALATASARAY-KOCAELİSPOR-13.09.2026": {
     "sent": true,
@@ -98,7 +98,7 @@
     "date": "13 Eylül 2026 Pazar",
     "time": "20:00",
     "venue": "Ali Sami Yen Spor Kompleksi RAMS Park",
-    "sentAt": "2026-09-08T03:52:58.781Z"
+    "sentAt": "2026-09-08T04:10:24.956Z"
   },
   "tff-GAZİANTEP FUTBOL KULÜBÜ-FENERBAHÇE-14.09.2026": {
     "sent": true,
@@ -108,6 +108,146 @@
     "date": "14 Eylül 2026 Pazartesi",
     "time": "20:00",
     "venue": "FENERBAHÇE A.Ş.",
-    "sentAt": "2026-09-08T03:53:00.371Z"
+    "sentAt": "2026-09-08T04:10:26.883Z"
+  },
+  "superlig-BEŞİKTAŞ-ERZURUMSPOR FK-2026": {
+    "sent": true,
+    "competition": "Trendyol Süper Lig",
+    "home": "BEŞİKTAŞ A.Ş.",
+    "away": "ERZURUMSPOR FK",
+    "date": "11 Eylül 2026 Cuma",
+    "time": "20:00",
+    "venue": "Tüpraş Stadyumu",
+    "sentAt": "2026-09-08T14:48:58.267Z"
+  },
+  "superlig-GALATASARAY-KOCAELİSPOR-2026": {
+    "sent": true,
+    "competition": "Trendyol Süper Lig",
+    "home": "GALATASARAY A.Ş.",
+    "away": "KOCAELİSPOR",
+    "date": "13 Eylül 2026 Pazar",
+    "time": "20:00",
+    "venue": "Ali Sami Yen Spor Kompleksi RAMS Park",
+    "sentAt": "2026-09-08T14:48:59.739Z"
+  },
+  "superlig-GAZİANTEP FUTBOL KULÜBÜ-FENERBAHÇE-2026": {
+    "sent": true,
+    "competition": "Trendyol Süper Lig",
+    "home": "GAZİANTEP FUTBOL KULÜBÜ A.Ş.",
+    "away": "FENERBAHÇE A.Ş.",
+    "date": "14 Eylül 2026 Pazartesi",
+    "time": "20:00",
+    "venue": "Gaziantep Stadyumu",
+    "sentAt": "2026-09-08T14:49:00.951Z"
+  },
+  "superlig-BEŞİKTAŞ-ERZURUMSPOR FK-2026-27": {
+    "sent": true,
+    "competition": "Trendyol Süper Lig",
+    "home": "BEŞİKTAŞ A.Ş.",
+    "away": "ERZURUMSPOR FK",
+    "date": "11 Eylül 2026 Cuma",
+    "time": "20:00",
+    "venue": "Tüpraş Stadyumu",
+    "sentAt": "2026-09-08T14:52:40.997Z"
+  },
+  "superlig-GALATASARAY-KOCAELİSPOR-2026-27": {
+    "sent": true,
+    "competition": "Trendyol Süper Lig",
+    "home": "GALATASARAY A.Ş.",
+    "away": "KOCAELİSPOR",
+    "date": "13 Eylül 2026 Pazar",
+    "time": "20:00",
+    "venue": "Ali Sami Yen Spor Kompleksi RAMS Park",
+    "sentAt": "2026-09-08T14:52:42.266Z"
+  },
+  "superlig-GAZİANTEP FUTBOL KULÜBÜ-FENERBAHÇE-2026-27": {
+    "sent": true,
+    "competition": "Trendyol Süper Lig",
+    "home": "GAZİANTEP FUTBOL KULÜBÜ A.Ş.",
+    "away": "FENERBAHÇE A.Ş.",
+    "date": "14 Eylül 2026 Pazartesi",
+    "time": "20:00",
+    "venue": "Gaziantep Stadyumu",
+    "sentAt": "2026-09-08T14:52:43.596Z"
+  },
+  "sl-BEŞİKTAŞ-ERZURUMSPOR FK-2026-27": {
+    "sent": true,
+    "competition": "Trendyol Süper Lig",
+    "home": "BEŞİKTAŞ A.Ş.",
+    "away": "ERZURUMSPOR FK",
+    "date": "11 Eylül 2026 Cuma",
+    "time": "20:00",
+    "venue": "Tüpraş Stadyumu",
+    "sentAt": "2026-09-08T15:06:22.701Z"
+  },
+  "sl-GALATASARAY-KOCAELİSPOR-2026-27": {
+    "sent": true,
+    "competition": "Trendyol Süper Lig",
+    "home": "GALATASARAY A.Ş.",
+    "away": "KOCAELİSPOR",
+    "date": "13 Eylül 2026 Pazar",
+    "time": "20:00",
+    "venue": "Ali Sami Yen Spor Kompleksi RAMS Park",
+    "sentAt": "2026-09-08T15:06:23.931Z"
+  },
+  "sl-GAZİANTEP FUTBOL KULÜBÜ-FENERBAHÇE-2026-27": {
+    "sent": true,
+    "competition": "Trendyol Süper Lig",
+    "home": "GAZİANTEP FUTBOL KULÜBÜ A.Ş.",
+    "away": "FENERBAHÇE A.Ş.",
+    "date": "14 Eylül 2026 Pazartesi",
+    "time": "20:00",
+    "venue": "Gaziantep Stadyumu",
+    "sentAt": "2026-09-08T15:06:25.305Z"
+  },
+  "champions-SPORTING CP-GALATASARAY-2026-27": {
+    "sent": true,
+    "competition": "UEFA Champions League",
+    "home": "Sporting CP",
+    "away": "Galatasaray",
+    "date": "9 Eylül 2026 Çarşamba",
+    "time": "22:00",
+    "venue": "Estádio José Alvalade",
+    "sentAt": "2026-09-08T15:16:39.701Z"
+  },
+  "champions-FENERBAHCE-ROMA-2026-27": {
+    "sent": true,
+    "competition": "UEFA Champions League",
+    "home": "Fenerbahçe",
+    "away": "Roma",
+    "date": "10 Eylül 2026 Perşembe",
+    "time": "19:45",
+    "venue": "Chobani Stadyumu Fenerbahçe Şükrü Saracoğlu Spor Kompleksi",
+    "sentAt": "2026-09-08T15:16:40.828Z"
+  },
+  "superlig-BESIKTAS A.S.-ERZURUMSPOR FK-2026-27": {
+    "sent": true,
+    "competition": "Trendyol Süper Lig",
+    "home": "BEŞİKTAŞ A.Ş.",
+    "away": "ERZURUMSPOR FK",
+    "date": "11 Eylül 2026 Cuma",
+    "time": "20:00",
+    "venue": "Tüpraş Stadyumu",
+    "sentAt": "2026-09-08T15:16:42.070Z"
+  },
+  "superlig-GALATASARAY A.S.-KOCAELISPOR-2026-27": {
+    "sent": true,
+    "competition": "Trendyol Süper Lig",
+    "home": "GALATASARAY A.Ş.",
+    "away": "KOCAELİSPOR",
+    "date": "13 Eylül 2026 Pazar",
+    "time": "20:00",
+    "venue": "Ali Sami Yen Spor Kompleksi RAMS Park",
+    "sentAt": "2026-09-08T15:16:45.277Z"
+  },
+  "superlig-GAZIANTEP FUTBOL KULUBU A.S.-FENERBAHCE A.S.-2026-27": {
+    "sent": true,
+    "competition": "Trendyol Süper Lig",
+    "home": "GAZİANTEP FUTBOL KULÜBÜ A.Ş.",
+    "away": "FENERBAHÇE A.Ş.",
+    "date": "14 Eylül 2026 Pazartesi",
+    "time": "20:00",
+    "venue": "Gaziantep Stadyumu",
+    "sentAt": "2026-09-08T15:16:46.512Z"
   }
 }
