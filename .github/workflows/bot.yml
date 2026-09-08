@@ -1,0 +1,38 @@
+name: Super Lig Discord Bot
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 */6 * * *"
+
+permissions:
+  contents: write
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Kodu indir
+        uses: actions/checkout@v4
+
+      - name: Node.js kur
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Paketleri kur
+        run: npm ci
+
+      - name: Botu calistir
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: node index.js
+
+      - name: sent.json kaydet
+        run: |
+          git config user.name "superlig-bot"
+          git config user.email "superlig-bot@users.noreply.github.com"
+          git add sent.json
+          git diff --cached --quiet || git commit -m "Update sent matches"
+          git push
