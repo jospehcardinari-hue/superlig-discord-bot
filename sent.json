@@ -1,9 +1,33 @@
-[
-  "2527727",
-  "2527728",
-  "2527729",
-  "2527724",
-  "2527738",
-  "2527733",
-  "2527735"
-]
+{
+  "2527724": {
+    "sent": true
+  },
+  "2527727": {
+    "sent": true
+  },
+  "2527728": {
+    "sent": true
+  },
+  "2527729": {
+    "sent": true
+  },
+  "2527733": {
+    "sent": true
+  },
+  "2527735": {
+    "sent": true
+  },
+  "2527738": {
+    "sent": true
+  },
+  "2849286059": {
+    "sent": true,
+    "competition": "UEFA Champions League",
+    "home": "Sporting CP",
+    "away": "Galatasaray",
+    "date": "9 Eylül 2026 Çarşamba",
+    "time": "22:00",
+    "venue": "Henüz açıklanmadı",
+    "sentAt": "2026-09-08T03:29:59.018Z"
+  }
+}
