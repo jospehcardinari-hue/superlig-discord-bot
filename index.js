@@ -1,4 +1,5 @@
 require("dotenv").config();
+
 const fs = require("fs");
 
 const WEBHOOK = process.env.DISCORD_WEBHOOK;
@@ -19,7 +20,9 @@ const BIG_FOUR = [
 ];
 
 function normalize(text = "") {
-    return text.trim().toLocaleUpperCase("tr-TR");
+    return text
+        .trim()
+        .toLocaleUpperCase("tr-TR");
 }
 
 function isBigFour(teamName) {
@@ -62,13 +65,15 @@ function getEventDate(event) {
     }
 
     const time =
-        event.strTime && event.strTime.trim() !== ""
+        event.strTime &&
+        event.strTime.trim() !== ""
             ? event.strTime
             : "00:00:00";
 
-    const date = new Date(
-        `${event.dateEvent}T${time}Z`
-    );
+    const date =
+        new Date(
+            `${event.dateEvent}T${time}Z`
+        );
 
     if (Number.isNaN(date.getTime())) {
         return null;
@@ -112,7 +117,7 @@ async function getFixtures() {
         `https://www.thesportsdb.com/api/v1/json/${API_KEY}/eventsseason.php` +
         `?id=${LEAGUE_ID}&s=${SEASON}`;
 
-    console.log("🌐 TheSportsDB fikstürü alınıyor...");
+    console.log("🌐 Fikstür alınıyor...");
 
     const response =
         await fetch(url);
@@ -133,37 +138,56 @@ function parseMatches(events) {
     const now =
         new Date();
 
+    const sevenDaysLater =
+        new Date(
+            now.getTime() +
+            7 * 24 * 60 * 60 * 1000
+        );
+
     return events
 
-        // 4 büyük filtresi
+        // Sadece 4 büyükleri ilgilendiren maçlar
         .filter(event => {
+            const home =
+                event.strHomeTeam || "";
+
+            const away =
+                event.strAwayTeam || "";
+
             return (
-                isBigFour(event.strHomeTeam || "") ||
-                isBigFour(event.strAwayTeam || "")
+                isBigFour(home) ||
+                isBigFour(away)
             );
         })
 
-        // Tarihi düzgün olan maçlar
-        .map(event => {
-            return {
-                event,
-                eventDate: getEventDate(event)
-            };
-        })
+        // Tarihi hazırla
+        .map(event => ({
+            event,
+            eventDate:
+                getEventDate(event)
+        }))
 
+        // Tarihi geçersiz olanları çıkar
         .filter(item =>
             item.eventDate !== null
         )
 
-        // GEÇMİŞ MAÇLARI BURADA ATIYORUZ
+        // Geçmiş maçları çıkar
         .filter(item =>
             item.eventDate > now
+        )
+
+        // Sadece önümüzdeki 7 gün
+        .filter(item =>
+            item.eventDate <=
+            sevenDaysLater
         )
 
         // En yakın maç önce
         .sort(
             (a, b) =>
-                a.eventDate - b.eventDate
+                a.eventDate -
+                b.eventDate
         )
 
         .map(item => {
@@ -218,14 +242,18 @@ async function sendDiscord(match) {
         isBigFour(match.home) &&
         isBigFour(match.away);
 
+    const title =
+        derby
+            ? `🔥 DERBİ | ${match.home} vs ${match.away}`
+            : `⚽ ${match.home} vs ${match.away}`;
+
     const payload = {
-        username: "Süper Lig Bot",
+        username:
+            "Süper Lig Bot",
 
         embeds: [
             {
-                title: derby
-                    ? `🔥 DERBİ | ${match.home} vs ${match.away}`
-                    : `⚽ ${match.home} vs ${match.away}`,
+                title,
 
                 description:
                     `🏆 **Trendyol Süper Lig**\n` +
@@ -233,33 +261,48 @@ async function sendDiscord(match) {
 
                 fields: [
                     {
-                        name: "📅 Tarih",
-                        value: match.date,
-                        inline: true
+                        name:
+                            "📅 Tarih",
+                        value:
+                            match.date,
+                        inline:
+                            true
                     },
 
                     {
-                        name: "⏰ Saat",
-                        value: match.time,
-                        inline: true
+                        name:
+                            "⏰ Saat",
+                        value:
+                            match.time,
+                        inline:
+                            true
                     },
 
                     {
-                        name: "🏟️ Stadyum",
-                        value: match.venue,
-                        inline: false
+                        name:
+                            "🏟️ Stadyum",
+                        value:
+                            match.venue,
+                        inline:
+                            false
                     },
 
                     {
-                        name: "🏠 Ev Sahibi",
-                        value: match.home,
-                        inline: true
+                        name:
+                            "🏠 Ev Sahibi",
+                        value:
+                            match.home,
+                        inline:
+                            true
                     },
 
                     {
-                        name: "✈️ Deplasman",
-                        value: match.away,
-                        inline: true
+                        name:
+                            "✈️ Deplasman",
+                        value:
+                            match.away,
+                        inline:
+                            true
                     }
                 ],
 
@@ -269,7 +312,8 @@ async function sendDiscord(match) {
                 },
 
                 timestamp:
-                    new Date().toISOString()
+                    new Date()
+                        .toISOString()
             }
         ]
     };
@@ -278,7 +322,8 @@ async function sendDiscord(match) {
         await fetch(
             WEBHOOK,
             {
-                method: "POST",
+                method:
+                    "POST",
 
                 headers: {
                     "Content-Type":
@@ -295,7 +340,7 @@ async function sendDiscord(match) {
             await response.text();
 
         throw new Error(
-            `Discord ${response.status}: ${error}`
+            `Discord hatası ${response.status}: ${error}`
         );
     }
 }
@@ -330,14 +375,14 @@ async function checkFixtures() {
             parseMatches(events);
 
         console.log(
-            `🔮 Yaklaşan 4 büyük maçı: ${matches.length}`
+            `📆 Önümüzdeki 7 gündeki 4 büyük maçı: ${matches.length}`
         );
 
         console.log("");
 
         if (matches.length === 0) {
             console.log(
-                "⚠️ Yaklaşan maç bulunamadı."
+                "⚠️ Önümüzdeki 7 gün içinde maç bulunamadı."
             );
 
             return;
@@ -347,7 +392,6 @@ async function checkFixtures() {
             loadSent();
 
         for (const match of matches) {
-
             console.log(
                 `⚽ ${match.home} vs ${match.away}`
             );
@@ -360,8 +404,9 @@ async function checkFixtures() {
                 `🏟️ ${match.venue}`
             );
 
-            if (sent.includes(match.id)) {
-
+            if (
+                sent.includes(match.id)
+            ) {
                 console.log(
                     "⏭️ Daha önce gönderilmiş."
                 );
@@ -371,11 +416,17 @@ async function checkFixtures() {
                 continue;
             }
 
-            await sendDiscord(match);
+            await sendDiscord(
+                match
+            );
 
-            sent.push(match.id);
+            sent.push(
+                match.id
+            );
 
-            saveSent(sent);
+            saveSent(
+                sent
+            );
 
             console.log(
                 "✅ Discord'a gönderildi."
@@ -383,17 +434,28 @@ async function checkFixtures() {
 
             console.log("");
 
-            await new Promise(resolve =>
-                setTimeout(resolve, 1500)
+            await new Promise(
+                resolve =>
+                    setTimeout(
+                        resolve,
+                        1500
+                    )
             );
         }
+
+        console.log(
+            "========================================"
+        );
 
         console.log(
             "✅ Kontrol tamamlandı."
         );
 
-    } catch (error) {
+        console.log(
+            "========================================"
+        );
 
+    } catch (error) {
         console.error("");
         console.error(
             "❌ HATA:",
