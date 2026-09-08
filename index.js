@@ -6,7 +6,6 @@ const WEBHOOK = process.env.DISCORD_WEBHOOK;
 
 const API_KEY = "123";
 const LEAGUE_ID = "4339";
-const SEASON = "2026-2027";
 
 const SENT_FILE = "./sent.json";
 
@@ -18,6 +17,10 @@ const BIG_FOUR = [
     "BESIKTAS",
     "TRABZONSPOR"
 ];
+
+// -----------------------------------------
+// Yardımcı fonksiyonlar
+// -----------------------------------------
 
 function normalize(text = "") {
     return text
@@ -33,98 +36,236 @@ function isBigFour(teamName) {
     );
 }
 
-function loadSent() {
-    if (!fs.existsSync(SENT_FILE)) {
-        fs.writeFileSync(
-            SENT_FILE,
-            JSON.stringify([], null, 2)
-        );
-
-        return [];
-    }
-
-    try {
-        return JSON.parse(
-            fs.readFileSync(SENT_FILE, "utf8")
-        );
-    } catch {
-        return [];
-    }
-}
-
-function saveSent(sent) {
-    fs.writeFileSync(
-        SENT_FILE,
-        JSON.stringify(sent, null, 2)
+function isDerby(home, away) {
+    return (
+        isBigFour(home) &&
+        isBigFour(away)
     );
 }
 
-function getEventDate(event) {
+function sleep(ms) {
+    return new Promise(resolve =>
+        setTimeout(resolve, ms)
+    );
+}
+
+// -----------------------------------------
+// sent.json
+// -----------------------------------------
+
+function loadDatabase() {
+    if (!fs.existsSync(SENT_FILE)) {
+        const empty = {};
+
+        fs.writeFileSync(
+            SENT_FILE,
+            JSON.stringify(empty, null, 2)
+        );
+
+        return empty;
+    }
+
+    try {
+        const raw =
+            fs.readFileSync(
+                SENT_FILE,
+                "utf8"
+            );
+
+        const parsed =
+            JSON.parse(raw);
+
+        /*
+        Eski sent.json şöyleyse:
+
+        [
+          "2527727",
+          "2527728"
+        ]
+
+        onu otomatik yeni sisteme çeviriyoruz.
+        */
+
+        if (Array.isArray(parsed)) {
+            const converted = {};
+
+            for (const id of parsed) {
+                converted[String(id)] = {
+                    sent: true
+                };
+            }
+
+            return converted;
+        }
+
+        return parsed;
+
+    } catch {
+        return {};
+    }
+}
+
+function saveDatabase(database) {
+    fs.writeFileSync(
+        SENT_FILE,
+        JSON.stringify(
+            database,
+            null,
+            2
+        )
+    );
+}
+
+// -----------------------------------------
+// Tarih işlemleri
+// -----------------------------------------
+
+function getTurkeyDateString(date) {
+    const formatter =
+        new Intl.DateTimeFormat(
+            "en-CA",
+            {
+                timeZone:
+                    "Europe/Istanbul",
+
+                year:
+                    "numeric",
+
+                month:
+                    "2-digit",
+
+                day:
+                    "2-digit"
+            }
+        );
+
+    return formatter.format(date);
+}
+
+function getNextSevenDates() {
+    const dates = [];
+
+    const now =
+        new Date();
+
+    for (
+        let i = 0;
+        i < 7;
+        i++
+    ) {
+        const date =
+            new Date(
+                now.getTime() +
+                i *
+                24 *
+                60 *
+                60 *
+                1000
+            );
+
+        dates.push(
+            getTurkeyDateString(date)
+        );
+    }
+
+    return dates;
+}
+
+function createEventDate(event) {
     if (!event.dateEvent) {
         return null;
     }
 
-    const time =
+    const rawTime =
         event.strTime &&
-        event.strTime.trim() !== ""
+        event.strTime.trim()
             ? event.strTime
             : "00:00:00";
 
-    const date =
+    /*
+    TheSportsDB saatleri UTC kabul ediliyor.
+    */
+
+    const value =
         new Date(
-            `${event.dateEvent}T${time}Z`
+            `${event.dateEvent}T${rawTime}Z`
         );
 
-    if (Number.isNaN(date.getTime())) {
+    if (
+        Number.isNaN(
+            value.getTime()
+        )
+    ) {
         return null;
     }
 
-    return date;
+    return value;
 }
 
-function formatTurkeyDateTime(eventDate) {
-    const date =
+function formatTurkeyDateTime(date) {
+    const formattedDate =
         new Intl.DateTimeFormat(
             "tr-TR",
             {
-                timeZone: "Europe/Istanbul",
-                weekday: "long",
-                day: "numeric",
-                month: "long",
-                year: "numeric"
-            }
-        ).format(eventDate);
+                timeZone:
+                    "Europe/Istanbul",
 
-    const time =
+                weekday:
+                    "long",
+
+                day:
+                    "numeric",
+
+                month:
+                    "long",
+
+                year:
+                    "numeric"
+            }
+        ).format(date);
+
+    const formattedTime =
         new Intl.DateTimeFormat(
             "tr-TR",
             {
-                timeZone: "Europe/Istanbul",
-                hour: "2-digit",
-                minute: "2-digit",
-                hour12: false
+                timeZone:
+                    "Europe/Istanbul",
+
+                hour:
+                    "2-digit",
+
+                minute:
+                    "2-digit",
+
+                hour12:
+                    false
             }
-        ).format(eventDate);
+        ).format(date);
 
     return {
-        date,
-        time
+        date:
+            formattedDate,
+
+        time:
+            formattedTime
     };
 }
 
-async function getFixtures() {
-    const url =
-        `https://www.thesportsdb.com/api/v1/json/${API_KEY}/eventsseason.php` +
-        `?id=${LEAGUE_ID}&s=${SEASON}`;
+// -----------------------------------------
+// TheSportsDB
+// -----------------------------------------
 
-    console.log("🌐 Fikstür alınıyor...");
+async function getEventsForDay(date) {
+    const url =
+        `https://www.thesportsdb.com/api/v1/json/${API_KEY}/eventsday.php` +
+        `?d=${date}&s=Soccer`;
 
     const response =
         await fetch(url);
 
     if (!response.ok) {
         throw new Error(
-            `TheSportsDB HTTP hatası: ${response.status}`
+            `TheSportsDB HTTP ${response.status}`
         );
     }
 
@@ -134,118 +275,179 @@ async function getFixtures() {
     return data.events || [];
 }
 
+async function getUpcomingEvents() {
+    const dates =
+        getNextSevenDates();
+
+    const allEvents = [];
+
+    console.log(
+        "📆 Önümüzdeki 7 gün kontrol ediliyor..."
+    );
+
+    for (const date of dates) {
+        console.log(
+            `🔎 ${date}`
+        );
+
+        try {
+            const events =
+                await getEventsForDay(
+                    date
+                );
+
+            for (const event of events) {
+
+                // Sadece Süper Lig
+                if (
+                    String(
+                        event.idLeague
+                    ) !==
+                    String(
+                        LEAGUE_ID
+                    )
+                ) {
+                    continue;
+                }
+
+                allEvents.push(
+                    event
+                );
+            }
+
+        } catch (error) {
+
+            console.log(
+                `⚠️ ${date} alınamadı: ${error.message}`
+            );
+        }
+
+        /*
+        Free API'yi gereksiz zorlamayalım.
+        */
+        await sleep(300);
+    }
+
+    return allEvents;
+}
+
+// -----------------------------------------
+// Maçları filtrele
+// -----------------------------------------
+
 function parseMatches(events) {
     const now =
         new Date();
 
-    const sevenDaysLater =
-        new Date(
-            now.getTime() +
-            7 * 24 * 60 * 60 * 1000
-        );
+    const seen =
+        new Set();
 
-    return events
+    const matches = [];
 
-        // Sadece 4 büyükleri ilgilendiren maçlar
-        .filter(event => {
-            const home =
-                event.strHomeTeam || "";
+    for (const event of events) {
 
-            const away =
-                event.strAwayTeam || "";
+        const home =
+            event.strHomeTeam || "";
 
-            return (
-                isBigFour(home) ||
-                isBigFour(away)
+        const away =
+            event.strAwayTeam || "";
+
+        // 4 büyüklerden biri yoksa geç
+        if (
+            !isBigFour(home) &&
+            !isBigFour(away)
+        ) {
+            continue;
+        }
+
+        const eventDate =
+            createEventDate(event);
+
+        if (!eventDate) {
+            continue;
+        }
+
+        // geçmiş maç
+        if (
+            eventDate <= now
+        ) {
+            continue;
+        }
+
+        const id =
+            String(
+                event.idEvent ||
+                `${event.dateEvent}-${home}-${away}`
             );
-        })
 
-        // Tarihi hazırla
-        .map(event => ({
-            event,
-            eventDate:
-                getEventDate(event)
-        }))
+        if (
+            seen.has(id)
+        ) {
+            continue;
+        }
 
-        // Tarihi geçersiz olanları çıkar
-        .filter(item =>
-            item.eventDate !== null
-        )
+        seen.add(id);
 
-        // Geçmiş maçları çıkar
-        .filter(item =>
-            item.eventDate > now
-        )
+        const turkey =
+            formatTurkeyDateTime(
+                eventDate
+            );
 
-        // Sadece önümüzdeki 7 gün
-        .filter(item =>
-            item.eventDate <=
-            sevenDaysLater
-        )
+        matches.push({
+            id,
 
-        // En yakın maç önce
-        .sort(
-            (a, b) =>
-                a.eventDate -
-                b.eventDate
-        )
+            home,
 
-        .map(item => {
-            const event =
-                item.event;
+            away,
 
-            const turkey =
-                formatTurkeyDateTime(
-                    item.eventDate
-                );
+            date:
+                turkey.date,
 
-            return {
-                id:
-                    String(event.idEvent),
+            time:
+                turkey.time,
 
-                home:
-                    event.strHomeTeam ||
-                    "Bilinmiyor",
+            venue:
+                event.strVenue ||
+                "Henüz açıklanmadı",
 
-                away:
-                    event.strAwayTeam ||
-                    "Bilinmiyor",
+            round:
+                event.intRound ||
+                "?",
 
-                date:
-                    turkey.date,
+            eventDate,
 
-                time:
-                    turkey.time,
-
-                venue:
-                    event.strVenue ||
-                    "Henüz açıklanmadı",
-
-                round:
-                    event.intRound ||
-                    "?",
-
-                eventDate:
-                    item.eventDate
-            };
+            status:
+                event.strStatus ||
+                "Scheduled"
         });
+    }
+
+    matches.sort(
+        (a, b) =>
+            a.eventDate -
+            b.eventDate
+    );
+
+    return matches;
 }
 
+// -----------------------------------------
+// Discord
+// -----------------------------------------
+
 async function sendDiscord(match) {
+
     if (!WEBHOOK) {
         throw new Error(
-            "DISCORD_WEBHOOK bulunamadı."
+            "DISCORD_WEBHOOK tanımlı değil."
         );
     }
 
     const derby =
-        isBigFour(match.home) &&
-        isBigFour(match.away);
-
-    const title =
-        derby
-            ? `🔥 DERBİ | ${match.home} vs ${match.away}`
-            : `⚽ ${match.home} vs ${match.away}`;
+        isDerby(
+            match.home,
+            match.away
+        );
 
     const payload = {
         username:
@@ -253,7 +455,10 @@ async function sendDiscord(match) {
 
         embeds: [
             {
-                title,
+                title:
+                    derby
+                        ? `🔥 DERBİ | ${match.home} vs ${match.away}`
+                        : `⚽ ${match.home} vs ${match.away}`,
 
                 description:
                     `🏆 **Trendyol Süper Lig**\n` +
@@ -263,8 +468,10 @@ async function sendDiscord(match) {
                     {
                         name:
                             "📅 Tarih",
+
                         value:
                             match.date,
+
                         inline:
                             true
                     },
@@ -272,8 +479,10 @@ async function sendDiscord(match) {
                     {
                         name:
                             "⏰ Saat",
+
                         value:
                             match.time,
+
                         inline:
                             true
                     },
@@ -281,8 +490,10 @@ async function sendDiscord(match) {
                     {
                         name:
                             "🏟️ Stadyum",
+
                         value:
                             match.venue,
+
                         inline:
                             false
                     },
@@ -290,8 +501,10 @@ async function sendDiscord(match) {
                     {
                         name:
                             "🏠 Ev Sahibi",
+
                         value:
                             match.home,
+
                         inline:
                             true
                     },
@@ -299,8 +512,10 @@ async function sendDiscord(match) {
                     {
                         name:
                             "✈️ Deplasman",
+
                         value:
                             match.away,
+
                         inline:
                             true
                     }
@@ -308,7 +523,7 @@ async function sendDiscord(match) {
 
                 footer: {
                     text:
-                        "Süper Lig Maç Takvimi • Kaynak: TheSportsDB"
+                        "Süper Lig Maç Takvimi • Otomatik kontrol"
                 },
 
                 timestamp:
@@ -331,102 +546,147 @@ async function sendDiscord(match) {
                 },
 
                 body:
-                    JSON.stringify(payload)
+                    JSON.stringify(
+                        payload
+                    )
             }
         );
 
     if (!response.ok) {
-        const error =
+
+        const text =
             await response.text();
 
         throw new Error(
-            `Discord hatası ${response.status}: ${error}`
+            `Discord ${response.status}: ${text}`
         );
     }
 }
 
+// -----------------------------------------
+// Ana bot
+// -----------------------------------------
+
 async function checkFixtures() {
-    try {
-        console.log("");
-        console.log(
-            "========================================"
-        );
-        console.log(
-            "⚽ SÜPER LİG BOT KONTROLÜ"
-        );
-        console.log(
-            "========================================"
-        );
 
-        console.log(
-            `🕒 ${new Date().toLocaleString("tr-TR")}`
-        );
+    console.log("");
+    console.log(
+        "======================================="
+    );
+    console.log(
+        "⚽ SÜPER LİG DISCORD BOT"
+    );
+    console.log(
+        "======================================="
+    );
 
-        console.log("");
-
-        const events =
-            await getFixtures();
-
-        console.log(
-            `📦 API'den ${events.length} maç geldi.`
-        );
-
-        const matches =
-            parseMatches(events);
-
-        console.log(
-            `📆 Önümüzdeki 7 gündeki 4 büyük maçı: ${matches.length}`
-        );
-
-        console.log("");
-
-        if (matches.length === 0) {
-            console.log(
-                "⚠️ Önümüzdeki 7 gün içinde maç bulunamadı."
-            );
-
-            return;
-        }
-
-        const sent =
-            loadSent();
-
-        for (const match of matches) {
-            console.log(
-                `⚽ ${match.home} vs ${match.away}`
-            );
-
-            console.log(
-                `📅 ${match.date} • ${match.time}`
-            );
-
-            console.log(
-                `🏟️ ${match.venue}`
-            );
-
-            if (
-                sent.includes(match.id)
-            ) {
-                console.log(
-                    "⏭️ Daha önce gönderilmiş."
-                );
-
-                console.log("");
-
-                continue;
+    console.log(
+        `🕒 Kontrol zamanı: ${new Date().toLocaleString(
+            "tr-TR",
+            {
+                timeZone:
+                    "Europe/Istanbul"
             }
+        )}`
+    );
+
+    console.log("");
+
+    const database =
+        loadDatabase();
+
+    const events =
+        await getUpcomingEvents();
+
+    console.log("");
+    console.log(
+        `📦 Toplam ${events.length} Süper Lig etkinliği bulundu.`
+    );
+
+    const matches =
+        parseMatches(events);
+
+    console.log(
+        `⚽ Bunların ${matches.length} tanesi 4 büyükleri ilgilendiriyor.`
+    );
+
+    console.log("");
+
+    if (
+        matches.length === 0
+    ) {
+        console.log(
+            "ℹ️ Önümüzdeki 7 gün içinde gönderilecek maç yok."
+        );
+
+        return;
+    }
+
+    let sentCount = 0;
+    let skippedCount = 0;
+
+    for (
+        const match of matches
+    ) {
+
+        console.log(
+            `⚽ ${match.home} vs ${match.away}`
+        );
+
+        console.log(
+            `📅 ${match.date} • ${match.time}`
+        );
+
+        console.log(
+            `🏟️ ${match.venue}`
+        );
+
+        const old =
+            database[
+                match.id
+            ];
+
+        /*
+        Daha önce hiç gönderilmemiş.
+        */
+
+        if (!old) {
 
             await sendDiscord(
                 match
             );
 
-            sent.push(
+            database[
                 match.id
+            ] = {
+                sent:
+                    true,
+
+                home:
+                    match.home,
+
+                away:
+                    match.away,
+
+                date:
+                    match.date,
+
+                time:
+                    match.time,
+
+                venue:
+                    match.venue,
+
+                sentAt:
+                    new Date()
+                        .toISOString()
+            };
+
+            saveDatabase(
+                database
             );
 
-            saveSent(
-                sent
-            );
+            sentCount++;
 
             console.log(
                 "✅ Discord'a gönderildi."
@@ -434,34 +694,83 @@ async function checkFixtures() {
 
             console.log("");
 
-            await new Promise(
-                resolve =>
-                    setTimeout(
-                        resolve,
-                        1500
-                    )
+            await sleep(
+                1200
+            );
+
+            continue;
+        }
+
+        /*
+        Daha önce gönderilmiş.
+        */
+
+        skippedCount++;
+
+        console.log(
+            "⏭️ Daha önce gönderilmiş."
+        );
+
+        /*
+        Saat/stat değişmiş mi kontrol edelim.
+        Şimdilik Discord'a tekrar göndermiyoruz,
+        sadece logluyoruz.
+        */
+
+        if (
+            old.time &&
+            old.time !== match.time
+        ) {
+            console.log(
+                `⚠️ Saat değişmiş: ${old.time} → ${match.time}`
             );
         }
 
-        console.log(
-            "========================================"
-        );
+        if (
+            old.venue &&
+            old.venue !==
+            match.venue
+        ) {
+            console.log(
+                `⚠️ Stadyum değişmiş: ${old.venue} → ${match.venue}`
+            );
+        }
 
-        console.log(
-            "✅ Kontrol tamamlandı."
-        );
-
-        console.log(
-            "========================================"
-        );
-
-    } catch (error) {
-        console.error("");
-        console.error(
-            "❌ HATA:",
-            error.message
-        );
+        console.log("");
     }
+
+    console.log(
+        "======================================="
+    );
+
+    console.log(
+        `✅ Yeni gönderilen: ${sentCount}`
+    );
+
+    console.log(
+        `⏭️ Atlanan: ${skippedCount}`
+    );
+
+    console.log(
+        "======================================="
+    );
 }
 
-checkFixtures();
+checkFixtures()
+    .catch(error => {
+
+        console.error("");
+        console.error(
+            "❌ BOT HATASI"
+        );
+
+        console.error(
+            error
+        );
+
+        /*
+        GitHub Actions başarısız görsün.
+        */
+
+        process.exitCode = 1;
+    });
