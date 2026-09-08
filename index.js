@@ -1,90 +1,73 @@
 require("dotenv").config();
 
 const fs = require("fs");
+const cheerio = require("cheerio");
+const iconv = require("iconv-lite");
 
-const WEBHOOK = process.env.DISCORD_WEBHOOK;
-const API_KEY = process.env.FOOTBALLDATA_API_KEY;
+// ======================================================
+// CONFIG
+// ======================================================
 
-const BASE_URL = "https://footballdata.io/api/v1";
-const SENT_FILE = "./sent.json";
+const DISCORD_WEBHOOK = process.env.DISCORD_WEBHOOK;
+const FOOTBALLDATA_API_KEY = process.env.FOOTBALLDATA_API_KEY;
+
+const FOOTBALLDATA_BASE = "https://footballdata.io/api/v1";
+const CHAMPIONS_LEAGUE_ID = 45;
+
+const TFF_URL =
+    "https://www.tff.org/default.aspx?pageID=198";
+
+const DB_FILE = "./sent.json";
 
 const args = process.argv.slice(2);
 
 const NEXT_WEEK = args.includes("--next-week");
 const FORCE = args.includes("--force");
 
-// ========================================
+// ======================================================
 // TAKİP EDİLEN TAKIMLAR
-// ========================================
+// ======================================================
 
-const BIG_THREE = [
+const TRACKED_TEAMS = [
     "FENERBAHÇE",
     "FENERBAHCE",
+
     "GALATASARAY",
+
     "BEŞİKTAŞ",
     "BESIKTAS"
 ];
 
-// ========================================
-// TAKİP EDİLEN ORGANİZASYONLAR
-// ========================================
+// ======================================================
+// YARDIMCILAR
+// ======================================================
 
-const COMPETITIONS = [
-    {
-        key: "superlig",
-
-        displayName: "Trendyol Süper Lig",
-
-        searchTerms: [
-            "Super Lig",
-            "Süper Lig",
-            "Turkish Super Lig",
-            "Turkey Super Lig"
-        ],
-
-        country: "Turkey",
-
-        emoji: "🇹🇷"
-    },
-
-    {
-        key: "champions",
-
-        displayName: "UEFA Champions League",
-
-        searchTerms: [
-            "UEFA Champions League",
-            "Champions League"
-        ],
-
-        country: null,
-
-        emoji: "🏆"
-    }
-];
-
-// ========================================
-// YARDIMCI
-// ========================================
-
-function normalize(text = "") {
+function clean(text = "") {
     return String(text)
-        .trim()
-        .toLocaleUpperCase("tr-TR");
+        .replace(/\u00A0/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
 }
 
-function isBigThree(teamName) {
-    const name = normalize(teamName);
+function normalize(text = "") {
+    return clean(text)
+        .toLocaleUpperCase("tr-TR")
+        .replace(/\s*A\.Ş\.\s*/gi, "")
+        .trim();
+}
 
-    return BIG_THREE.some(team =>
-        name.includes(team)
+function isTrackedTeam(name) {
+    const normalized = normalize(name);
+
+    return TRACKED_TEAMS.some(team =>
+        normalized.includes(team)
     );
 }
 
 function isDerby(home, away) {
     return (
-        isBigThree(home) &&
-        isBigThree(away)
+        isTrackedTeam(home) &&
+        isTrackedTeam(away)
     );
 }
 
@@ -94,14 +77,14 @@ function sleep(ms) {
     );
 }
 
-// ========================================
-// SENT.JSON
-// ========================================
+// ======================================================
+// DATABASE
+// ======================================================
 
 function loadDatabase() {
-    if (!fs.existsSync(SENT_FILE)) {
+    if (!fs.existsSync(DB_FILE)) {
         fs.writeFileSync(
-            SENT_FILE,
+            DB_FILE,
             JSON.stringify({}, null, 2)
         );
 
@@ -110,13 +93,10 @@ function loadDatabase() {
 
     try {
         const parsed = JSON.parse(
-            fs.readFileSync(
-                SENT_FILE,
-                "utf8"
-            )
+            fs.readFileSync(DB_FILE, "utf8")
         );
 
-        // Eski array formatını yeni objeye dönüştür.
+        // Eski [] formatını da destekle
         if (Array.isArray(parsed)) {
             const converted = {};
 
@@ -138,9 +118,9 @@ function loadDatabase() {
 
         return {};
 
-    } catch (error) {
+    } catch {
         console.log(
-            "⚠️ sent.json okunamadı, yeni database kullanılacak."
+            "⚠️ sent.json okunamadı, boş database kullanılacak."
         );
 
         return {};
@@ -149,182 +129,19 @@ function loadDatabase() {
 
 function saveDatabase(database) {
     fs.writeFileSync(
-        SENT_FILE,
-        JSON.stringify(
-            database,
-            null,
-            2
-        )
+        DB_FILE,
+        JSON.stringify(database, null, 2)
     );
 }
 
-// ========================================
-// API
-// ========================================
-
-async function apiGet(path) {
-    if (!API_KEY) {
-        throw new Error(
-            "FOOTBALLDATA_API_KEY .env dosyasında yok."
-        );
-    }
-
-    const response = await fetch(
-        `${BASE_URL}${path}`,
-        {
-            headers: {
-                Authorization:
-                    `Bearer ${API_KEY}`,
-
-                Accept:
-                    "application/json"
-            }
-        }
-    );
-
-    let data;
-
-    try {
-        data =
-            await response.json();
-
-    } catch {
-        throw new Error(
-            `API geçersiz JSON döndürdü. HTTP ${response.status}`
-        );
-    }
-
-    if (!response.ok) {
-        throw new Error(
-            `API HTTP ${response.status}: ${JSON.stringify(data)}`
-        );
-    }
-
-    return data;
-}
-
-// ========================================
-// LİG BULMA
-// ========================================
-
-function extractArray(response) {
-    if (Array.isArray(response)) {
-        return response;
-    }
-
-    if (Array.isArray(response?.data)) {
-        return response.data;
-    }
-
-    if (Array.isArray(response?.data?.leagues)) {
-        return response.data.leagues;
-    }
-
-    if (Array.isArray(response?.leagues)) {
-        return response.leagues;
-    }
-
-    return [];
-}
-
-async function searchLeague(term, country = null) {
-    let path =
-        `/leagues?search=${encodeURIComponent(term)}`;
-
-    if (country) {
-        path +=
-            `&country=${encodeURIComponent(country)}`;
-    }
-
-    const response =
-        await apiGet(path);
-
-    return extractArray(response);
-}
-
-async function findCompetition(config) {
-    for (
-        const term of config.searchTerms
-    ) {
-        console.log(
-            `🔎 Lig aranıyor: ${term}`
-        );
-
-        const results =
-            await searchLeague(
-                term,
-                config.country
-            );
-
-        if (
-            Array.isArray(results) &&
-            results.length > 0
-        ) {
-            let best =
-                results[0];
-
-            // İsmi en iyi eşleşeni seç.
-            const exact =
-                results.find(item => {
-                    const name =
-                        normalize(
-                            item.league_name ||
-                            item.name ||
-                            ""
-                        );
-
-                    return (
-                        name.includes(
-                            normalize(term)
-                        ) ||
-                        normalize(term).includes(name)
-                    );
-                });
-
-            if (exact) {
-                best = exact;
-            }
-
-            console.log(
-                `✅ Bulundu: ${
-                    best.league_name ||
-                    best.name
-                }`
-            );
-
-            return {
-                ...config,
-
-                leagueId:
-                    best.league_id ||
-                    best.id,
-
-                apiName:
-                    best.league_name ||
-                    best.name ||
-                    config.displayName
-            };
-        }
-
-        await sleep(250);
-    }
-
-    console.log(
-        `❌ ${config.displayName} bulunamadı.`
-    );
-
-    return null;
-}
-
-// ========================================
-// TARİH ARALIĞI
-// ========================================
+// ======================================================
+// TARİH
+// ======================================================
 
 function getDateWindow() {
-    const now =
-        new Date();
+    const now = new Date();
 
-    const day =
+    const DAY =
         24 * 60 * 60 * 1000;
 
     if (NEXT_WEEK) {
@@ -332,13 +149,13 @@ function getDateWindow() {
             start:
                 new Date(
                     now.getTime() +
-                    7 * day
+                    7 * DAY
                 ),
 
             end:
                 new Date(
                     now.getTime() +
-                    14 * day
+                    14 * DAY
                 )
         };
     }
@@ -349,31 +166,9 @@ function getDateWindow() {
         end:
             new Date(
                 now.getTime() +
-                7 * day
+                7 * DAY
             )
     };
-}
-
-function toApiDate(date) {
-    const parts =
-        new Intl.DateTimeFormat(
-            "en-CA",
-            {
-                timeZone:
-                    "Europe/Istanbul",
-
-                year:
-                    "numeric",
-
-                month:
-                    "2-digit",
-
-                day:
-                    "2-digit"
-            }
-        ).format(date);
-
-    return parts;
 }
 
 function formatTurkeyDateTime(date) {
@@ -419,12 +214,416 @@ function formatTurkeyDateTime(date) {
     };
 }
 
-// ========================================
-// FİKSTÜR ÇEKME
-// ========================================
+function getCountdown(date) {
+    const diff =
+        date.getTime() -
+        Date.now();
 
-function extractFixtures(response) {
-    if (Array.isArray(response?.data)) {
+    if (diff <= 0) {
+        return "Maç başladı veya tamamlandı";
+    }
+
+    const totalMinutes =
+        Math.floor(
+            diff / 60000
+        );
+
+    const days =
+        Math.floor(
+            totalMinutes / 1440
+        );
+
+    const hours =
+        Math.floor(
+            (totalMinutes % 1440) / 60
+        );
+
+    const minutes =
+        totalMinutes % 60;
+
+    if (days > 0) {
+        return (
+            `${days} gün ${hours} saat kaldı`
+        );
+    }
+
+    if (hours > 0) {
+        return (
+            `${hours} saat ${minutes} dakika kaldı`
+        );
+    }
+
+    return `${minutes} dakika kaldı`;
+}
+
+// ======================================================
+// TFF
+// ======================================================
+
+async function getTffHtml() {
+    console.log(
+        "🇹🇷 TFF Süper Lig fikstürü alınıyor..."
+    );
+
+    const response = await fetch(
+        TFF_URL,
+        {
+            headers: {
+                "User-Agent":
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/151 Safari/537.36",
+
+                "Accept-Language":
+                    "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7"
+            }
+        }
+    );
+
+    if (!response.ok) {
+        throw new Error(
+            `TFF HTTP ${response.status}`
+        );
+    }
+
+    const buffer =
+        Buffer.from(
+            await response.arrayBuffer()
+        );
+
+    // Türkçe karakterler için
+    return iconv.decode(
+        buffer,
+        "windows-1254"
+    );
+}
+
+function parseTffDate(
+    dateText,
+    timeText
+) {
+    const match =
+        dateText.match(
+            /^(\d{2})\.(\d{2})\.(\d{4})$/
+        );
+
+    if (!match) {
+        return null;
+    }
+
+    const [
+        ,
+        day,
+        month,
+        year
+    ] = match;
+
+    const date =
+        new Date(
+            `${year}-${month}-${day}T${timeText}:00+03:00`
+        );
+
+    if (
+        Number.isNaN(
+            date.getTime()
+        )
+    ) {
+        return null;
+    }
+
+    return date;
+}
+
+function parseTffFixtures(html) {
+    const $ =
+        cheerio.load(html);
+
+    const matches = [];
+    const seen = new Set();
+
+    $("tr").each((_, row) => {
+        const rowText =
+            clean(
+                $(row).text()
+            );
+
+        const dateMatch =
+            rowText.match(
+                /\b(\d{2}\.\d{2}\.\d{4})\b/
+            );
+
+        const timeMatch =
+            rowText.match(
+                /\b(\d{2}:\d{2})\b/
+            );
+
+        if (
+            !dateMatch ||
+            !timeMatch
+        ) {
+            return;
+        }
+
+        const linkTexts = [];
+
+        $(row)
+            .find("a")
+            .each((_, element) => {
+                const text =
+                    clean(
+                        $(element).text()
+                    );
+
+                if (text) {
+                    linkTexts.push(text);
+                }
+            });
+
+        /*
+          Önce "-" linkini arıyoruz.
+          Ev sahibi solundaki,
+          deplasman sağındaki link.
+        */
+
+        const dashIndex =
+            linkTexts.findIndex(
+                text =>
+                    text === "-"
+            );
+
+        let home = null;
+        let away = null;
+
+        if (
+            dashIndex > 0 &&
+            dashIndex + 1 <
+            linkTexts.length
+        ) {
+            home =
+                linkTexts[
+                    dashIndex - 1
+                ];
+
+            away =
+                linkTexts[
+                    dashIndex + 1
+                ];
+        }
+
+        /*
+          Bazı TFF satırlarında "-" link olmayabilir.
+          Fallback olarak satır içindeki takım linklerini al.
+        */
+
+        if (
+            !home ||
+            !away
+        ) {
+            const teamLinks =
+                linkTexts.filter(text => {
+                    const n =
+                        normalize(text);
+
+                    return (
+                        !n.includes("DETAY") &&
+                        n !== "-" &&
+                        !/^\d+$/.test(n)
+                    );
+                });
+
+            if (
+                teamLinks.length >= 2
+            ) {
+                home =
+                    teamLinks[0];
+
+                away =
+                    teamLinks[1];
+            }
+        }
+
+        if (
+            !home ||
+            !away
+        ) {
+            return;
+        }
+
+        home =
+            clean(home);
+
+        away =
+            clean(away);
+
+        if (
+            !isTrackedTeam(home) &&
+            !isTrackedTeam(away)
+        ) {
+            return;
+        }
+
+        const eventDate =
+            parseTffDate(
+                dateMatch[1],
+                timeMatch[1]
+            );
+
+        if (!eventDate) {
+            return;
+        }
+
+        const id =
+            [
+                "tff",
+                normalize(home),
+                normalize(away),
+                dateMatch[1],
+                timeMatch[1]
+            ].join("-");
+
+        if (seen.has(id)) {
+            return;
+        }
+
+        seen.add(id);
+
+        const formatted =
+            formatTurkeyDateTime(
+                eventDate
+            );
+
+        matches.push({
+            id,
+
+            source:
+                "TFF",
+
+            competitionKey:
+                "superlig",
+
+            competition:
+                "Trendyol Süper Lig",
+
+            emoji:
+                "🇹🇷",
+
+            home,
+
+            away,
+
+            eventDate,
+
+            date:
+                formatted.date,
+
+            time:
+                formatted.time,
+
+            venue:
+                "Henüz açıklanmadı",
+
+            round:
+                "Süper Lig",
+
+            homeLogo:
+                null,
+
+            awayLogo:
+                null
+        });
+    });
+
+    return matches.sort(
+        (a, b) =>
+            a.eventDate -
+            b.eventDate
+    );
+}
+
+async function getSuperLigMatches() {
+    try {
+        const html =
+            await getTffHtml();
+
+        const matches =
+            parseTffFixtures(
+                html
+            );
+
+        console.log(
+            `🇹🇷 TFF'den ${matches.length} adet 3 büyük maçı bulundu.`
+        );
+
+        for (const match of matches) {
+            console.log(
+                `   ⚽ ${match.home} vs ${match.away}`
+            );
+        }
+
+        return matches;
+
+    } catch (error) {
+        console.log(
+            `⚠️ TFF hatası: ${error.message}`
+        );
+
+        return [];
+    }
+}
+
+// ======================================================
+// FOOTBALLDATA.IO
+// ======================================================
+
+async function footballApiGet(path) {
+    if (!FOOTBALLDATA_API_KEY) {
+        throw new Error(
+            "FOOTBALLDATA_API_KEY .env içinde yok."
+        );
+    }
+
+    const response =
+        await fetch(
+            `${FOOTBALLDATA_BASE}${path}`,
+            {
+                headers: {
+                    Authorization:
+                        `Bearer ${FOOTBALLDATA_API_KEY}`,
+
+                    Accept:
+                        "application/json"
+                }
+            }
+        );
+
+    let data;
+
+    try {
+        data =
+            await response.json();
+    } catch {
+        throw new Error(
+            `Footballdata geçersiz JSON. HTTP ${response.status}`
+        );
+    }
+
+    if (!response.ok) {
+        throw new Error(
+            `Footballdata HTTP ${response.status}: ${JSON.stringify(data)}`
+        );
+    }
+
+    return data;
+}
+
+function extractApiArray(response) {
+    if (Array.isArray(response)) {
+        return response;
+    }
+
+    if (
+        Array.isArray(
+            response?.data
+        )
+    ) {
         return response.data;
     }
 
@@ -447,54 +646,7 @@ function extractFixtures(response) {
     return [];
 }
 
-async function getCompetitionFixtures(
-    competition
-) {
-    const {
-        start,
-        end
-    } = getDateWindow();
-
-    const from =
-        toApiDate(start);
-
-    const to =
-        toApiDate(end);
-
-    const path =
-        `/fixtures/upcoming` +
-        `?league_id=${competition.leagueId}` +
-        `&from=${from}` +
-        `&to=${to}` +
-        `&limit=100`;
-
-    console.log(
-        `📥 ${competition.displayName} fikstürü alınıyor...`
-    );
-
-    const response =
-        await apiGet(path);
-
-    const fixtures =
-        extractFixtures(response);
-
-    console.log(
-        `📦 ${competition.displayName}: ${fixtures.length} maç`
-    );
-
-    return fixtures.map(match => ({
-        ...match,
-
-        _competition:
-            competition
-    }));
-}
-
-// ========================================
-// MAÇ VERİSİ
-// ========================================
-
-function getHomeTeam(match) {
+function apiHome(match) {
     return (
         match.home_team?.team_name ||
         match.home_team?.name ||
@@ -504,7 +656,7 @@ function getHomeTeam(match) {
     );
 }
 
-function getAwayTeam(match) {
+function apiAway(match) {
     return (
         match.away_team?.team_name ||
         match.away_team?.name ||
@@ -514,38 +666,26 @@ function getAwayTeam(match) {
     );
 }
 
-function getHomeLogo(match) {
+function apiHomeLogo(match) {
     return (
         match.home_team?.team_logo ||
         match.home_team?.logo ||
+        match.home_logo ||
         null
     );
 }
 
-function getAwayLogo(match) {
+function apiAwayLogo(match) {
     return (
         match.away_team?.team_logo ||
         match.away_team?.logo ||
+        match.away_logo ||
         null
     );
 }
 
-function getMatchId(match) {
-    return String(
-        match.match_id ||
-        match.id ||
-        match.fixture_id ||
-        [
-            match._competition?.leagueId,
-            match.match_date,
-            getHomeTeam(match),
-            getAwayTeam(match)
-        ].join("-")
-    );
-}
-
-function getVenue(match) {
-    const venue =
+function apiVenue(match) {
+    const value =
         match.venue?.name ||
         match.venue_name ||
         match.stadium_name ||
@@ -553,33 +693,31 @@ function getVenue(match) {
         match.venue;
 
     if (
-        typeof venue === "string" &&
-        venue.trim()
+        typeof value === "string" &&
+        value.trim()
     ) {
-        return venue;
+        return value.trim();
     }
 
     return "Henüz açıklanmadı";
 }
 
-function getRound(match) {
+function apiRound(match) {
     return String(
         match.round ||
         match.round_name ||
-        match.game_week ||
-        match.gameweek ||
         match.matchday ||
+        match.game_week ||
         "Henüz açıklanmadı"
     );
 }
 
-function getMatchDate(match) {
-    // API date_unix veriyorsa en güvenlisi bu.
+function apiDate(match) {
     if (
         typeof match.date_unix ===
         "number"
     ) {
-        const unixDate =
+        const date =
             new Date(
                 match.date_unix *
                 1000
@@ -587,10 +725,10 @@ function getMatchDate(match) {
 
         if (
             !Number.isNaN(
-                unixDate.getTime()
+                date.getTime()
             )
         ) {
-            return unixDate;
+            return date;
         }
     }
 
@@ -602,144 +740,214 @@ function getMatchDate(match) {
         match.match_date
     ];
 
-    for (const raw of possible) {
-        if (!raw) {
+    for (const value of possible) {
+        if (!value) {
             continue;
         }
 
-        const parsed =
-            new Date(raw);
+        const date =
+            new Date(value);
 
         if (
             !Number.isNaN(
-                parsed.getTime()
+                date.getTime()
             )
         ) {
-            return parsed;
+            return date;
         }
     }
 
     return null;
 }
 
-// ========================================
-// 3 BÜYÜK FİLTRESİ
-// ========================================
+async function getChampionsLeagueMatches() {
+    try {
+        console.log(
+            "🏆 Şampiyonlar Ligi fikstürü alınıyor..."
+        );
 
-function buildMatches(fixtures) {
+        const response =
+            await footballApiGet(
+                `/fixtures/upcoming` +
+                `?league_id=${CHAMPIONS_LEAGUE_ID}` +
+                `&limit=100`
+            );
+
+        const fixtures =
+            extractApiArray(
+                response
+            );
+
+        console.log(
+            `🏆 API ${fixtures.length} UCL maçı döndürdü.`
+        );
+
+        const matches = [];
+
+        for (const fixture of fixtures) {
+            const home =
+                apiHome(
+                    fixture
+                );
+
+            const away =
+                apiAway(
+                    fixture
+                );
+
+            if (
+                !isTrackedTeam(home) &&
+                !isTrackedTeam(away)
+            ) {
+                continue;
+            }
+
+            const eventDate =
+                apiDate(
+                    fixture
+                );
+
+            if (!eventDate) {
+                continue;
+            }
+
+            const formatted =
+                formatTurkeyDateTime(
+                    eventDate
+                );
+
+            matches.push({
+                id:
+                    `ucl-${
+                        fixture.match_id ||
+                        fixture.id ||
+                        fixture.fixture_id ||
+                        `${home}-${away}-${eventDate.toISOString()}`
+                    }`,
+
+                source:
+                    "Footballdata.io",
+
+                competitionKey:
+                    "champions",
+
+                competition:
+                    "UEFA Champions League",
+
+                emoji:
+                    "🏆",
+
+                home,
+
+                away,
+
+                eventDate,
+
+                date:
+                    formatted.date,
+
+                time:
+                    formatted.time,
+
+                venue:
+                    apiVenue(
+                        fixture
+                    ),
+
+                round:
+                    apiRound(
+                        fixture
+                    ),
+
+                homeLogo:
+                    apiHomeLogo(
+                        fixture
+                    ),
+
+                awayLogo:
+                    apiAwayLogo(
+                        fixture
+                    )
+            });
+        }
+
+        console.log(
+            `🏆 3 büyükleri ilgilendiren ${matches.length} UCL maçı bulundu.`
+        );
+
+        return matches;
+
+    } catch (error) {
+        console.log(
+            `⚠️ UCL hatası: ${error.message}`
+        );
+
+        return [];
+    }
+}
+
+// ======================================================
+// TARİH FİLTRESİ
+// ======================================================
+
+function filterDateWindow(matches) {
     const {
         start,
         end
     } = getDateWindow();
 
-    const output = [];
-    const seen = new Set();
-
-    for (const fixture of fixtures) {
-        const home =
-            getHomeTeam(fixture);
-
-        const away =
-            getAwayTeam(fixture);
-
-        // 3 büyüklerden biri yoksa geç.
-        if (
-            !isBigThree(home) &&
-            !isBigThree(away)
-        ) {
-            continue;
-        }
-
-        const eventDate =
-            getMatchDate(fixture);
-
-        if (!eventDate) {
-            console.log(
-                `⚠️ Tarih okunamadı: ${home} vs ${away}`
-            );
-
-            continue;
-        }
-
-        if (
-            eventDate < start ||
-            eventDate >= end
-        ) {
-            continue;
-        }
-
-        const id =
-            getMatchId(fixture);
-
-        if (seen.has(id)) {
-            continue;
-        }
-
-        seen.add(id);
-
-        const formatted =
-            formatTurkeyDateTime(
-                eventDate
-            );
-
-        output.push({
-            id,
-
-            home,
-
-            away,
-
-            homeLogo:
-                getHomeLogo(fixture),
-
-            awayLogo:
-                getAwayLogo(fixture),
-
-            date:
-                formatted.date,
-
-            time:
-                formatted.time,
-
-            eventDate,
-
-            venue:
-                getVenue(fixture),
-
-            round:
-                getRound(fixture),
-
-            competition:
-                fixture._competition
-        });
-    }
-
-    output.sort(
-        (a, b) =>
-            a.eventDate -
-            b.eventDate
-    );
-
-    return output;
+    return matches
+        .filter(match =>
+            match.eventDate >= start &&
+            match.eventDate < end
+        )
+        .sort(
+            (a, b) =>
+                a.eventDate -
+                b.eventDate
+        );
 }
 
-// ========================================
+// ======================================================
 // DISCORD
-// ========================================
+// ======================================================
 
-async function sendDiscord(match) {
-    if (!WEBHOOK) {
+async function sendDiscord(payload) {
+    if (!DISCORD_WEBHOOK) {
         throw new Error(
-            "DISCORD_WEBHOOK .env dosyasında yok."
+            "DISCORD_WEBHOOK .env içinde yok."
         );
     }
 
-    const isChampions =
-        match.competition.key ===
-        "champions";
+    const response =
+        await fetch(
+            DISCORD_WEBHOOK,
+            {
+                method:
+                    "POST",
 
+                headers: {
+                    "Content-Type":
+                        "application/json"
+                },
+
+                body:
+                    JSON.stringify(
+                        payload
+                    )
+            }
+        );
+
+    if (!response.ok) {
+        throw new Error(
+            `Discord HTTP ${response.status}: ${await response.text()}`
+        );
+    }
+}
+
+async function sendMatch(match) {
     const derby =
-        match.competition.key ===
+        match.competitionKey ===
         "superlig" &&
         isDerby(
             match.home,
@@ -752,7 +960,10 @@ async function sendDiscord(match) {
         title =
             `🔥 DERBİ | ${match.home} vs ${match.away}`;
 
-    } else if (isChampions) {
+    } else if (
+        match.competitionKey ===
+        "champions"
+    ) {
         title =
             `🏆 ŞAMPİYONLAR LİGİ | ${match.home} vs ${match.away}`;
 
@@ -765,7 +976,7 @@ async function sendDiscord(match) {
         title,
 
         description:
-            `${match.competition.emoji} **${match.competition.displayName}**`,
+            `${match.emoji} **${match.competition}**`,
 
         fields: [
             {
@@ -799,6 +1010,19 @@ async function sendDiscord(match) {
 
                 inline:
                     true
+            },
+
+            {
+                name:
+                    "⏳ Maça Kalan",
+
+                value:
+                    getCountdown(
+                        match.eventDate
+                    ),
+
+                inline:
+                    false
             },
 
             {
@@ -837,9 +1061,11 @@ async function sendDiscord(match) {
 
         footer: {
             text:
-                NEXT_WEEK
-                    ? "3 Büyükler • 7–14 gün sonrası"
-                    : "3 Büyükler • Önümüzdeki 7 gün"
+                `${match.source} • ${
+                    NEXT_WEEK
+                        ? "7–14 gün sonrası"
+                        : "Önümüzdeki 7 gün"
+                }`
         },
 
         timestamp:
@@ -847,7 +1073,6 @@ async function sendDiscord(match) {
                 .toISOString()
     };
 
-    // Ev sahibi logosu varsa thumbnail yap.
     if (match.homeLogo) {
         embed.thumbnail = {
             url:
@@ -855,47 +1080,164 @@ async function sendDiscord(match) {
         };
     }
 
-    const payload = {
+    if (match.awayLogo) {
+        embed.author = {
+            name:
+                `${match.away} • Deplasman`,
+
+            icon_url:
+                match.awayLogo
+        };
+    }
+
+    await sendDiscord({
         username:
             "3 Büyükler Maç Botu",
 
         embeds: [
             embed
         ]
-    };
-
-    const response =
-        await fetch(
-            WEBHOOK,
-            {
-                method:
-                    "POST",
-
-                headers: {
-                    "Content-Type":
-                        "application/json"
-                },
-
-                body:
-                    JSON.stringify(
-                        payload
-                    )
-            }
-        );
-
-    if (!response.ok) {
-        const text =
-            await response.text();
-
-        throw new Error(
-            `Discord HTTP ${response.status}: ${text}`
-        );
-    }
+    });
 }
 
-// ========================================
-// ANA PROGRAM
-// ========================================
+// ======================================================
+// GÜNCELLEME ALGILAMA
+// ======================================================
+
+function detectChanges(
+    oldData,
+    match
+) {
+    const changes = {};
+
+    if (
+        oldData.date &&
+        oldData.date !== match.date
+    ) {
+        changes.date = {
+            old:
+                oldData.date,
+
+            new:
+                match.date
+        };
+    }
+
+    if (
+        oldData.time &&
+        oldData.time !== match.time
+    ) {
+        changes.time = {
+            old:
+                oldData.time,
+
+            new:
+                match.time
+        };
+    }
+
+    if (
+        oldData.venue &&
+        oldData.venue !== match.venue
+    ) {
+        changes.venue = {
+            old:
+                oldData.venue,
+
+            new:
+                match.venue
+        };
+    }
+
+    return changes;
+}
+
+async function sendUpdate(
+    match,
+    changes
+) {
+    const lines = [];
+
+    if (changes.date) {
+        lines.push(
+            `📅 ${changes.date.old} → **${changes.date.new}**`
+        );
+    }
+
+    if (changes.time) {
+        lines.push(
+            `⏰ ${changes.time.old} → **${changes.time.new}**`
+        );
+    }
+
+    if (changes.venue) {
+        lines.push(
+            `🏟️ ${changes.venue.old} → **${changes.venue.new}**`
+        );
+    }
+
+    await sendDiscord({
+        username:
+            "3 Büyükler Maç Botu",
+
+        embeds: [
+            {
+                title:
+                    "⚠️ FİKSTÜR GÜNCELLENDİ",
+
+                description:
+                    `**${match.home} vs ${match.away}**\n\n` +
+                    lines.join("\n"),
+
+                footer: {
+                    text:
+                        match.competition
+                },
+
+                timestamp:
+                    new Date()
+                        .toISOString()
+            }
+        ]
+    });
+}
+
+// ======================================================
+// DATABASE ENTRY
+// ======================================================
+
+function createDbEntry(match) {
+    return {
+        sent:
+            true,
+
+        competition:
+            match.competition,
+
+        home:
+            match.home,
+
+        away:
+            match.away,
+
+        date:
+            match.date,
+
+        time:
+            match.time,
+
+        venue:
+            match.venue,
+
+        sentAt:
+            new Date()
+                .toISOString()
+    };
+}
+
+// ======================================================
+// MAIN
+// ======================================================
 
 async function main() {
     console.log("");
@@ -908,7 +1250,7 @@ async function main() {
     );
 
     console.log(
-        "Süper Lig + UEFA Champions League"
+        "TFF Süper Lig + UEFA Champions League"
     );
 
     console.log(
@@ -917,8 +1259,8 @@ async function main() {
 
     console.log(
         NEXT_WEEK
-            ? "📆 Tarih: 7–14 gün sonrası"
-            : "📆 Tarih: Önümüzdeki 7 gün"
+            ? "📆 7–14 gün sonrası"
+            : "📆 Önümüzdeki 7 gün"
     );
 
     if (FORCE) {
@@ -929,88 +1271,41 @@ async function main() {
 
     console.log("");
 
-    // -----------------------------
-    // Organizasyonları bul
-    // -----------------------------
-
-    const competitions = [];
-
-    for (
-        const config of COMPETITIONS
-    ) {
-        const found =
-            await findCompetition(
-                config
-            );
-
-        if (found) {
-            competitions.push(
-                found
-            );
-        }
-
-        await sleep(300);
-    }
-
-    if (
-        competitions.length === 0
-    ) {
-        throw new Error(
-            "Hiçbir organizasyon bulunamadı."
-        );
-    }
-
-    console.log("");
-
-    // -----------------------------
-    // Fikstürleri çek
-    // -----------------------------
-
-    const allFixtures = [];
-
-    for (
-        const competition of
-        competitions
-    ) {
-        try {
-            const fixtures =
-                await getCompetitionFixtures(
-                    competition
-                );
-
-            allFixtures.push(
-                ...fixtures
-            );
-
-        } catch (error) {
-            console.log(
-                `⚠️ ${competition.displayName} alınamadı: ${error.message}`
-            );
-        }
-
-        await sleep(350);
-    }
-
-    // -----------------------------
-    // 3 büyükleri ayıkla
-    // -----------------------------
-
-    const matches =
-        buildMatches(
-            allFixtures
-        );
+    const [
+        superLigMatches,
+        championsMatches
+    ] = await Promise.all([
+        getSuperLigMatches(),
+        getChampionsLeagueMatches()
+    ]);
 
     console.log("");
     console.log(
-        `⚽ Toplam ${matches.length} adet 3 büyük maçı bulundu.`
+        `🇹🇷 Süper Lig toplam: ${superLigMatches.length}`
     );
+
+    console.log(
+        `🏆 UCL toplam: ${championsMatches.length}`
+    );
+
+    const matches =
+        filterDateWindow([
+            ...superLigMatches,
+            ...championsMatches
+        ]);
+
+    console.log("");
+    console.log(
+        `⚽ Seçilen tarih aralığında ${matches.length} maç bulundu.`
+    );
+
     console.log("");
 
     if (
         matches.length === 0
     ) {
         console.log(
-            "ℹ️ Bu tarih aralığında 3 büyüklerin maçı yok."
+            "ℹ️ Gönderilecek maç yok."
         );
 
         return;
@@ -1019,18 +1314,13 @@ async function main() {
     const database =
         loadDatabase();
 
-    let sentCount = 0;
-    let skippedCount = 0;
+    let newCount = 0;
+    let updateCount = 0;
+    let skipCount = 0;
 
-    for (
-        const match of matches
-    ) {
+    for (const match of matches) {
         console.log(
-            `${match.competition.emoji} ${match.competition.displayName}`
-        );
-
-        console.log(
-            `⚽ ${match.home} vs ${match.away}`
+            `${match.emoji} ${match.home} vs ${match.away}`
         );
 
         console.log(
@@ -1046,68 +1336,110 @@ async function main() {
                 match.id
             ];
 
-        if (
-            old &&
-            !FORCE
-        ) {
-            skippedCount++;
+        // FORCE
+        if (FORCE) {
+            await sendMatch(
+                match
+            );
+
+            database[
+                match.id
+            ] = createDbEntry(
+                match
+            );
+
+            saveDatabase(
+                database
+            );
+
+            newCount++;
 
             console.log(
-                "⏭️ Daha önce gönderilmiş."
+                "✅ FORCE ile gönderildi."
             );
 
             console.log("");
 
+            await sleep(1200);
+
             continue;
         }
 
-        await sendDiscord(
-            match
-        );
+        // YENİ
+        if (!old) {
+            await sendMatch(
+                match
+            );
 
-        database[
-            match.id
-        ] = {
-            sent:
-                true,
+            database[
+                match.id
+            ] = createDbEntry(
+                match
+            );
 
-            competition:
-                match.competition
-                    .displayName,
+            saveDatabase(
+                database
+            );
 
-            home:
-                match.home,
+            newCount++;
 
-            away:
-                match.away,
+            console.log(
+                "✅ Yeni maç gönderildi."
+            );
 
-            date:
-                match.date,
+            console.log("");
 
-            time:
-                match.time,
+            await sleep(1200);
 
-            venue:
-                match.venue,
+            continue;
+        }
 
-            sentAt:
-                new Date()
-                    .toISOString()
-        };
+        // DEĞİŞİKLİK
+        const changes =
+            detectChanges(
+                old,
+                match
+            );
 
-        saveDatabase(
-            database
-        );
+        if (
+            Object.keys(changes)
+                .length > 0
+        ) {
+            await sendUpdate(
+                match,
+                changes
+            );
 
-        sentCount++;
+            database[
+                match.id
+            ] = createDbEntry(
+                match
+            );
+
+            saveDatabase(
+                database
+            );
+
+            updateCount++;
+
+            console.log(
+                "⚠️ Güncelleme gönderildi."
+            );
+
+            console.log("");
+
+            await sleep(1200);
+
+            continue;
+        }
+
+        skipCount++;
 
         console.log(
-            "✅ Discord'a gönderildi."
+            "⏭️ Zaten gönderilmiş."
         );
 
         console.log("");
-
-        await sleep(1200);
     }
 
     console.log(
@@ -1115,17 +1447,25 @@ async function main() {
     );
 
     console.log(
-        `✅ Gönderilen: ${sentCount}`
+        `✅ Yeni: ${newCount}`
     );
 
     console.log(
-        `⏭️ Atlanan: ${skippedCount}`
+        `⚠️ Güncelleme: ${updateCount}`
+    );
+
+    console.log(
+        `⏭️ Atlanan: ${skipCount}`
     );
 
     console.log(
         "========================================"
     );
 }
+
+// ======================================================
+// RUN
+// ======================================================
 
 main()
     .catch(error => {
